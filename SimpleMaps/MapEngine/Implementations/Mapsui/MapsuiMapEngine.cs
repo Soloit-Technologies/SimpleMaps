@@ -2,6 +2,9 @@
 using Mapsui.Animations;
 using Mapsui.Layers;
 using Mapsui.Nts.Providers;
+using Mapsui.Rendering;
+using Mapsui.Rendering.Skia;
+using Mapsui.Styles;
 using Mapsui.Tiling;
 using Mapsui.Tiling.Layers;
 using SimpleMaps.Coordinates;
@@ -17,9 +20,14 @@ internal class MapsuiMapEngine : IMapEngine
     private readonly MyLocationLayer _positionLayer;
 
     /// <summary>
-    /// Layer name prefix for system layers (e.g., position layer)
+    /// Layer name prefix for bottom system layers (e.g., base map)
     /// </summary>
-    private const string SystemLayerPrefix = "sys_";
+    private const string BottomSystemLayerPrefix = "sys_bottom_";
+
+    /// <summary>
+    /// Layer name prefix for top system layers (e.g., position layer)
+    /// </summary>
+    private const string TopSystemLayerPrefix = "sys_top_";
 
     /// <summary>
     /// Layer name prefix for user layers
@@ -51,15 +59,17 @@ internal class MapsuiMapEngine : IMapEngine
 
     public MapsuiMapEngine()
     {
+        DefaultRendererFactory.Create = () => new MapRenderer();
+
         _positionLayer = new(_map)
         {
             Enabled = false,
             IsCentered = false,
-            Name = $"{SystemLayerPrefix}position"
+            Name = $"{TopSystemLayerPrefix}position"
         };
 
         var mapLayer = OpenStreetMap.CreateTileLayer("simple_maps");
-        mapLayer.Name = $"{SystemLayerPrefix}baseMap";
+        mapLayer.Name = $"{BottomSystemLayerPrefix}baseMap";
 
         _map.Layers.Add(mapLayer);
         _map.Layers.Add(_positionLayer);
@@ -90,16 +100,28 @@ internal class MapsuiMapEngine : IMapEngine
     {
         Layer layer = new()
         {
-            DataSource = new FilteredIndexedMemoryProvider(features),
-            SortFeatures = SortFeatures
+            DataSource = new FilteredIndexedMemoryProvider(features)
+            {
+                Sort = SortFeatures
+            },
+            Style = new VectorStyle()
+            {
+                Fill = new(Color.Transparent),
+                Outline = new(Color.Transparent)
+            }
         };
 
         RasterizingTileLayer tileLayer = new(layer)
         {
-            Name = $"{UserLayerPrefix}{zIndex}"
+            Name = $"{UserLayerPrefix}{zIndex}",
         };
 
         ReplaceLayer(tileLayer, zIndex);
+    }
+
+    private static IEnumerable<IFeature> SortFeatures(IEnumerable<IFeature> features)
+    {
+        return features.OrderBy(f => ((MapObject?)f["mapObject"])?.RenderingOrder);
     }
 
     private void ReplaceLayer(RasterizingTileLayer layer, int zIndex)
@@ -114,14 +136,18 @@ internal class MapsuiMapEngine : IMapEngine
         }
         
         // Find the correct position to insert based on logical layer indices
+        // Layer order should be: bottom system layers -> user layers (by z-index) -> top system layers
         var insertPosition = 0;
         foreach (var existingLayer in _map.Layers)
         {
-            if (IsSystemLayer(existingLayer.Name))
+            // Count bottom system layers (they stay first)
+            if (IsBottomSystemLayer(existingLayer.Name))
             {
+                insertPosition++;
                 continue;
             }
 
+            // Count user layers with lower z-index
             if (IsUserLayer(existingLayer.Name))
             {
                 var layerNameWithoutPrefix = existingLayer.Name[UserLayerPrefix.Length..];
@@ -149,11 +175,6 @@ internal class MapsuiMapEngine : IMapEngine
         return features;
     }
 
-    private static IEnumerable<IFeature> SortFeatures(IEnumerable<IFeature> features)
-    {
-        return features.OrderBy(f => ((MapObject?)f["mapObject"])?.RenderingOrder);
-    }
-
     public void SetFilter(int layerIndex, Func<MapObject, double, bool> filter)
     {
         var layerName = $"{UserLayerPrefix}{layerIndex}";
@@ -161,7 +182,7 @@ internal class MapsuiMapEngine : IMapEngine
         if (layer is not null)
         {
             var provider = (FilteredIndexedMemoryProvider?)((Layer)layer).DataSource;
-            provider?.SetFilter((feature, resolution) =>
+            provider?.Filter = (feature, resolution) =>
             {
                 var mapObject = (MapObject?)feature["mapObject"];
                 if (mapObject is null)
@@ -170,7 +191,7 @@ internal class MapsuiMapEngine : IMapEngine
                 }
 
                 return filter(mapObject, resolution);
-            });
+            };
         }
     }
 
@@ -189,10 +210,7 @@ internal class MapsuiMapEngine : IMapEngine
     {
         var layerName = $"{UserLayerPrefix}{layerIndex}";
         var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
-        if (layer is not null)
-        {
-            layer.Enabled = enable;
-        }
+        layer?.Enabled = enable;
     }
 
     public void RemoveAll(int zIndex = 0)
@@ -220,7 +238,7 @@ internal class MapsuiMapEngine : IMapEngine
                     if (remainingFeatures.Count != provider.Features.Count)
                     {
                         // Extract the z-index from the layer name
-                        var layerNameWithoutPrefix = layer.Name.Substring(UserLayerPrefix.Length);
+                        var layerNameWithoutPrefix = layer.Name[UserLayerPrefix.Length..];
                         if (int.TryParse(layerNameWithoutPrefix, out var zIndex))
                         {
                             if (remainingFeatures.Count == 0)
@@ -268,11 +286,18 @@ internal class MapsuiMapEngine : IMapEngine
     }
 
     /// <summary>
-    /// Checks if a layer name corresponds to a system layer.Use Is
+    /// Checks if a layer name corresponds to a bottom system layer (rendered first).
     /// </summary>
     /// <param name="layerName">The layer name to check.</param>
-    /// <returns>True if the layer is a system layer; otherwise, false.</returns>
-    private static bool IsSystemLayer(string? layerName) => layerName?.StartsWith(SystemLayerPrefix) == true;
+    /// <returns>True if the layer is a bottom system layer; otherwise, false.</returns>
+    private static bool IsBottomSystemLayer(string? layerName) => layerName?.StartsWith(BottomSystemLayerPrefix) == true;
+
+    /// <summary>
+    /// Checks if a layer name corresponds to a top system layer (rendered last).
+    /// </summary>
+    /// <param name="layerName">The layer name to check.</param>
+    /// <returns>True if the layer is a top system layer; otherwise, false.</returns>
+    private static bool IsTopSystemLayer(string? layerName) => layerName?.StartsWith(TopSystemLayerPrefix) == true;
 
     /// <summary>
     /// Checks if a layer name corresponds to a user layer.
