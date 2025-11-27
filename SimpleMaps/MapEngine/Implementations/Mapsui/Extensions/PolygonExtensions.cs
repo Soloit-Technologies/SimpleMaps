@@ -12,7 +12,8 @@ internal static class PolygonExtensions
     {
         GeometryFeature feature = new()
         {
-            Geometry = new NetTopologySuite.Geometries.Polygon(ToLinearRing(polygon.Vertices))
+            Geometry = new NetTopologySuite.Geometries.Polygon(ToLinearRing(polygon.Vertices)),
+            ["mapObject"] = polygon
         };
 
         feature.Styles.Add(GetStyle(polygon.Outline, polygon.Fill));
