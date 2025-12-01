@@ -34,6 +34,23 @@ internal class MapsuiMapEngine : IMapEngine
     /// </summary>
     private const string UserLayerPrefix = "user_";
 
+    /// <summary>
+    /// Stores pending visibility states for layers that don't exist yet.
+    /// Key is the layer index, value is the desired visibility state.
+    /// </summary>
+    private readonly Dictionary<int, bool> _pendingVisibilityState = new();
+
+    /// <summary>
+    /// Stores pending filter states for layers that don't exist yet.
+    /// Key is the layer index, value is the desired filter function.
+    /// </summary>
+    private readonly Dictionary<int, Func<MapObject, double, bool>> _pendingFilterState = new();
+
+    /// <summary>
+    /// Maps layer index to the underlying data provider for quick access.
+    /// </summary>
+    private readonly Dictionary<int, FilteredIndexedMemoryProvider> _layerProviders = new();
+
     public Map MapsuiMap => _map;
 
     public bool ShowLocationMarker 
@@ -98,12 +115,14 @@ internal class MapsuiMapEngine : IMapEngine
 
     private void Replace(IEnumerable<IFeature> features, int zIndex)
     {
+        var provider = new FilteredIndexedMemoryProvider(features)
+        {
+            Sort = SortFeatures
+        };
+
         Layer layer = new()
         {
-            DataSource = new FilteredIndexedMemoryProvider(features)
-            {
-                Sort = SortFeatures
-            },
+            DataSource = provider,
             Style = new VectorStyle()
             {
                 Fill = new(Color.Transparent),
@@ -115,6 +134,9 @@ internal class MapsuiMapEngine : IMapEngine
         {
             Name = $"{UserLayerPrefix}{zIndex}",
         };
+
+        // Store the provider for later access
+        _layerProviders[zIndex] = provider;
 
         ReplaceLayer(tileLayer, zIndex);
     }
@@ -128,11 +150,41 @@ internal class MapsuiMapEngine : IMapEngine
     {
         var layerName = $"{UserLayerPrefix}{zIndex}";
         var layerToBeRemoved = _map.Layers.FirstOrDefault(l => l.Name == layerName);
-        layer.Enabled = layerToBeRemoved?.Enabled ?? true;
+        
+        // Apply pending visibility state if it exists, otherwise preserve existing state
+        if (_pendingVisibilityState.TryGetValue(zIndex, out var pendingVisibility))
+        {
+            layer.Enabled = pendingVisibility;
+            _pendingVisibilityState.Remove(zIndex);
+        }
+        else
+        {
+            layer.Enabled = layerToBeRemoved?.Enabled ?? true;
+        }
+
+        // Apply pending filter state if it exists
+        if (_pendingFilterState.TryGetValue(zIndex, out var pendingFilter))
+        {
+            if (_layerProviders.TryGetValue(zIndex, out var provider))
+            {
+                provider.Filter = (feature, resolution) =>
+                {
+                    var mapObject = (MapObject?)feature["mapObject"];
+                    if (mapObject is null)
+                    {
+                        return false;
+                    }
+
+                    return pendingFilter(mapObject, resolution);
+                };
+            }
+            _pendingFilterState.Remove(zIndex);
+        }
 
         if (layerToBeRemoved is not null)
         {
             _map.Layers.Remove(layerToBeRemoved);
+            _layerProviders.Remove(zIndex);
         }
         
         // Find the correct position to insert based on logical layer indices
@@ -177,12 +229,9 @@ internal class MapsuiMapEngine : IMapEngine
 
     public void SetFilter(int layerIndex, Func<MapObject, double, bool> filter)
     {
-        var layerName = $"{UserLayerPrefix}{layerIndex}";
-        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
-        if (layer is not null)
+        if (_layerProviders.TryGetValue(layerIndex, out var provider))
         {
-            var provider = (FilteredIndexedMemoryProvider?)((Layer)layer).DataSource;
-            provider?.Filter = (feature, resolution) =>
+            provider.Filter = (feature, resolution) =>
             {
                 var mapObject = (MapObject?)feature["mapObject"];
                 if (mapObject is null)
@@ -192,6 +241,12 @@ internal class MapsuiMapEngine : IMapEngine
 
                 return filter(mapObject, resolution);
             };
+            _pendingFilterState.Remove(layerIndex);
+        }
+        else
+        {
+            // Store the desired filter state for when the layer is created
+            _pendingFilterState[layerIndex] = filter;
         }
     }
 
@@ -210,7 +265,20 @@ internal class MapsuiMapEngine : IMapEngine
     {
         var layerName = $"{UserLayerPrefix}{layerIndex}";
         var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
-        layer?.Enabled = enable;
+        
+        if (layer is not null)
+        {
+            layer.Enabled = enable;
+            _map.Refresh();
+
+            // Remove from pending state if it was there
+            _pendingVisibilityState.Remove(layerIndex);
+        }
+        else
+        {
+            // Store the desired visibility state for when the layer is created
+            _pendingVisibilityState[layerIndex] = enable;
+        }
     }
 
     public void RemoveAll(int zIndex = 0)
@@ -220,6 +288,9 @@ internal class MapsuiMapEngine : IMapEngine
         if (layer is not null)
         {
             _map.Layers.Remove(layer);
+            _pendingVisibilityState.Remove(zIndex);
+            _pendingFilterState.Remove(zIndex);
+            _layerProviders.Remove(zIndex);
         }
     }
 
@@ -244,6 +315,9 @@ internal class MapsuiMapEngine : IMapEngine
                             if (remainingFeatures.Count == 0)
                             {
                                 _map.Layers.Remove(layer);
+                                _pendingVisibilityState.Remove(zIndex);
+                                _pendingFilterState.Remove(zIndex);
+                                _layerProviders.Remove(zIndex);
                             }
                             else
                             {
