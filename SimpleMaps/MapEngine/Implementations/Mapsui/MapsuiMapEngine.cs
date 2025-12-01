@@ -1,4 +1,4 @@
-﻿using Mapsui;
+using Mapsui;
 using Mapsui.Animations;
 using Mapsui.Layers;
 using Mapsui.Nts.Providers;
@@ -135,7 +135,6 @@ internal class MapsuiMapEngine : IMapEngine
             Name = $"{UserLayerPrefix}{zIndex}",
         };
 
-        // Store the provider for later access
         _layerProviders[zIndex] = provider;
 
         ReplaceLayer(tileLayer, zIndex);
@@ -151,7 +150,14 @@ internal class MapsuiMapEngine : IMapEngine
         var layerName = $"{UserLayerPrefix}{zIndex}";
         var layerToBeRemoved = _map.Layers.FirstOrDefault(l => l.Name == layerName);
         
-        // Apply pending visibility state if it exists, otherwise preserve existing state
+        ApplyPendingVisibilityState(layer, zIndex, layerToBeRemoved);
+        ApplyPendingFilterState(zIndex);
+        RemoveOldLayer(layerToBeRemoved, zIndex);
+        InsertLayerAtCorrectPosition(layer, zIndex);
+    }
+
+    private void ApplyPendingVisibilityState(RasterizingTileLayer layer, int zIndex, ILayer? layerToBeRemoved)
+    {
         if (_pendingVisibilityState.TryGetValue(zIndex, out var pendingVisibility))
         {
             layer.Enabled = pendingVisibility;
@@ -161,8 +167,10 @@ internal class MapsuiMapEngine : IMapEngine
         {
             layer.Enabled = layerToBeRemoved?.Enabled ?? true;
         }
+    }
 
-        // Apply pending filter state if it exists
+    private void ApplyPendingFilterState(int zIndex)
+    {
         if (_pendingFilterState.TryGetValue(zIndex, out var pendingFilter))
         {
             if (_layerProviders.TryGetValue(zIndex, out var provider))
@@ -180,37 +188,46 @@ internal class MapsuiMapEngine : IMapEngine
             }
             _pendingFilterState.Remove(zIndex);
         }
+    }
 
+    private void RemoveOldLayer(ILayer? layerToBeRemoved, int zIndex)
+    {
         if (layerToBeRemoved is not null)
         {
             _map.Layers.Remove(layerToBeRemoved);
             _layerProviders.Remove(zIndex);
         }
-        
-        // Find the correct position to insert based on logical layer indices
-        // Layer order should be: bottom system layers -> user layers (by z-index) -> top system layers
+    }
+
+    private void InsertLayerAtCorrectPosition(RasterizingTileLayer layer, int zIndex)
+    {
+        var insertPosition = CalculateInsertPosition(zIndex);
+        _map.Layers.Insert(insertPosition, layer);
+    }
+
+    private int CalculateInsertPosition(int zIndex)
+    {
         var insertPosition = 0;
+        
         foreach (var existingLayer in _map.Layers)
         {
-            // Count bottom system layers (they stay first)
             if (IsBottomSystemLayer(existingLayer.Name))
             {
                 insertPosition++;
-                continue;
             }
-
-            // Count user layers with lower z-index
-            if (IsUserLayer(existingLayer.Name))
+            else if (IsUserLayer(existingLayer.Name) && HasLowerZIndex(existingLayer.Name, zIndex))
             {
-                var layerNameWithoutPrefix = existingLayer.Name[UserLayerPrefix.Length..];
-                if (int.TryParse(layerNameWithoutPrefix, out var existingIndex) && existingIndex < zIndex)
-                {
-                    insertPosition++;
-                }
+                insertPosition++;
             }
         }
         
-        _map.Layers.Insert(insertPosition, layer);
+        return insertPosition;
+    }
+
+    private static bool HasLowerZIndex(string layerName, int zIndex)
+    {
+        var layerNameWithoutPrefix = layerName[UserLayerPrefix.Length..];
+        return int.TryParse(layerNameWithoutPrefix, out var existingIndex) && existingIndex < zIndex;
     }
 
     private IReadOnlyList<IFeature> GetFeatures(int layerIndex)
@@ -245,7 +262,6 @@ internal class MapsuiMapEngine : IMapEngine
         }
         else
         {
-            // Store the desired filter state for when the layer is created
             _pendingFilterState[layerIndex] = filter;
         }
     }
@@ -271,12 +287,10 @@ internal class MapsuiMapEngine : IMapEngine
             layer.Enabled = enable;
             _map.Refresh();
 
-            // Remove from pending state if it was there
             _pendingVisibilityState.Remove(layerIndex);
         }
         else
         {
-            // Store the desired visibility state for when the layer is created
             _pendingVisibilityState[layerIndex] = enable;
         }
     }
@@ -308,7 +322,6 @@ internal class MapsuiMapEngine : IMapEngine
 
                     if (remainingFeatures.Count != provider.Features.Count)
                     {
-                        // Extract the z-index from the layer name
                         var layerNameWithoutPrefix = layer.Name[UserLayerPrefix.Length..];
                         if (int.TryParse(layerNameWithoutPrefix, out var zIndex))
                         {
