@@ -4,8 +4,7 @@
              xmlns:local="clr-namespace:SimpleMaps.Maui"
              xmlns:mapsui="clr-namespace:Mapsui.UI.Maui;assembly=Mapsui.UI.Maui"
              x:Name="rootView"
-             x:Class="SimpleMaps.Maui.MapControl"
-             x:DataType="local:MapControl">
+             x:Class="SimpleMaps.Maui.MapControl">
     <ContentView.Resources>
         <local:MapConverter x:Key="MapConverter"/>
     </ContentView.Resources>
