@@ -1,4 +1,3 @@
-using Mapsui;
 using SimpleMaps.MapEngine;
 using SimpleMaps.MapEngine.Implementations.Mapsui;
 using SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
@@ -52,13 +51,11 @@ public partial class MapControl : ContentView
 	private void BindToMapsuiEngine(MapsuiMapEngine mapsuiEngine)
 	{
 		// Get the Mapsui.MapControl from the XAML
-		var mapsuiControl = this.FindByName<Mapsui.UI.Maui.MapControl>("MapControl");
+		var mapsuiControl = this.FindByName<Mapsui.UI.Maui.MapControl>("mapControl");
 
         // Bind the Mapsui Map to the MapControl
         if (mapsuiControl is not null)
-        {
-            mapsuiControl.Map = mapsuiEngine.MapsuiMap;
-            
+        {            
             // Subscribe to the Mapsui pointer press event
             mapsuiControl.MapPointerPressed += OnMapsuiPointerPressed;
         }

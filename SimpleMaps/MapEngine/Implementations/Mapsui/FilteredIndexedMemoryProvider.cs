@@ -6,14 +6,16 @@ namespace SimpleMaps.MapEngine.Implementations.Mapsui;
 
 internal class FilteredIndexedMemoryProvider(IEnumerable<IFeature> features) : IndexedMemoryProvider(features)
 {
-    private Func<IFeature, double, bool>? _filter;
+    public Func<IFeature, double, bool>? Filter { get; set; }
 
-    public void SetFilter(Func<IFeature, double, bool>? filter) => _filter = filter;
+    public Func<IEnumerable<IFeature>, IEnumerable<IFeature>>? Sort { get; set; }
 
     public async override Task<IEnumerable<IFeature>> GetFeaturesAsync(FetchInfo fetchInfo)
     {
         var features = await base.GetFeaturesAsync(fetchInfo);
 
-        return _filter is null ? features : features.Where(f => _filter(f, fetchInfo.Resolution));
+        var filteredFeatures = Filter is null ? features : features.Where(f => Filter(f, fetchInfo.Resolution));
+
+        return Sort is null ? filteredFeatures : Sort(filteredFeatures);
     }
 }

@@ -1,7 +1,11 @@
-﻿using Mapsui;
+using Mapsui;
 using Mapsui.Animations;
 using Mapsui.Layers;
 using Mapsui.Nts.Providers;
+using Mapsui.Rendering;
+using Mapsui.Rendering.Skia;
+using Mapsui.Styles;
+using Mapsui.Tiling;
 using Mapsui.Tiling.Layers;
 using SimpleMaps.Coordinates;
 using SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
@@ -14,6 +18,38 @@ internal class MapsuiMapEngine : IMapEngine
     private readonly Map _map = new();
 
     private readonly MyLocationLayer _positionLayer;
+
+    /// <summary>
+    /// Layer name prefix for bottom system layers (e.g., base map)
+    /// </summary>
+    private const string BottomSystemLayerPrefix = "sys_bottom_";
+
+    /// <summary>
+    /// Layer name prefix for top system layers (e.g., position layer)
+    /// </summary>
+    private const string TopSystemLayerPrefix = "sys_top_";
+
+    /// <summary>
+    /// Layer name prefix for user layers
+    /// </summary>
+    private const string UserLayerPrefix = "user_";
+
+    /// <summary>
+    /// Stores pending visibility states for layers that don't exist yet.
+    /// Key is the layer index, value is the desired visibility state.
+    /// </summary>
+    private readonly Dictionary<int, bool> _pendingVisibilityState = [];
+
+    /// <summary>
+    /// Stores pending filter states for layers that don't exist yet.
+    /// Key is the layer index, value is the desired filter function.
+    /// </summary>
+    private readonly Dictionary<int, Func<MapObject, double, bool>> _pendingFilterState = [];
+
+    /// <summary>
+    /// Maps layer index to the underlying data provider for quick access.
+    /// </summary>
+    private readonly Dictionary<int, FilteredIndexedMemoryProvider> _layerProviders = [];
 
     public Map MapsuiMap => _map;
 
@@ -40,11 +76,20 @@ internal class MapsuiMapEngine : IMapEngine
 
     public MapsuiMapEngine()
     {
+        DefaultRendererFactory.Create = () => new MapRenderer();
+
         _positionLayer = new(_map)
         {
             Enabled = false,
-            IsCentered = false
+            IsCentered = false,
+            Name = $"{TopSystemLayerPrefix}position"
         };
+
+        var mapLayer = OpenStreetMap.CreateTileLayer("simple_maps");
+        mapLayer.Name = $"{BottomSystemLayerPrefix}baseMap";
+
+        _map.Layers.Add(mapLayer);
+        _map.Layers.Add(_positionLayer);
     }
 
     public void Add(MapObject mapObject, int zIndex = 0)
@@ -53,71 +98,96 @@ internal class MapsuiMapEngine : IMapEngine
     }
 
     public void Add(IEnumerable<MapObject> mapObjects, int zIndex = 0)
-    {
+    {  
+        if (!mapObjects.Any())
+        {
+            return;
+        }
+
         var features = mapObjects.Select(g => g.ToFeature());
 
         var existingFeatures = GetFeatures(zIndex);
 
-        Replace(existingFeatures.Concat(features), zIndex);
+        var allFeatures = existingFeatures.Concat(features).ToList();
+
+        if (allFeatures.Count > 50)
+        {
+            ReplaceWithPerformanceLayer(allFeatures, zIndex);
+            return;
+        }
+
+        Replace(allFeatures, zIndex);
     }
 
     public void Replace(IEnumerable<MapObject> mapObjects, int zIndex = 0)
     {
+        if (!mapObjects.Any())
+        {
+            RemoveAll(zIndex);
+            return;
+        }
+
         var features = mapObjects.Select(g => g.ToFeature());
+
+        if (features.Count() > 50)
+        {
+            ReplaceWithPerformanceLayer(features, zIndex);
+            return;
+        }
 
         Replace(features, zIndex);
     }
 
     private void Replace(IEnumerable<IFeature> features, int zIndex)
     {
+        var layerName = $"{UserLayerPrefix}{zIndex}";
+        var existingLayer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+
+        if (existingLayer is WritableLayer layer)
+        {
+            layer.Clear();
+            layer.AddRange(features);
+            layer.DataHasChanged();
+            return;
+        }
+
+        WritableLayer newLayer = new()
+        {
+            Name = layerName,
+            SortFeatures = SortFeatures,
+            Style = null
+        };
+
+        newLayer.AddRange(features);
+
+        ReplaceLayer(newLayer, zIndex);
+    }
+
+    private void ReplaceWithPerformanceLayer(IEnumerable<IFeature> features, int zIndex)
+    {
+        var provider = new FilteredIndexedMemoryProvider(features)
+        {
+            Sort = SortFeatures
+        };
+
         Layer layer = new()
         {
-            DataSource = new FilteredIndexedMemoryProvider(features),
-            SortFeatures = SortFeatures
+            DataSource = provider,
+            Style = new VectorStyle()
+            {
+                Fill = new(Color.Transparent),
+                Outline = new(Color.Transparent)
+            }
         };
 
         RasterizingTileLayer tileLayer = new(layer)
         {
-            Name = zIndex.ToString()
+            Name = $"{UserLayerPrefix}{zIndex}",
         };
 
+        _layerProviders[zIndex] = provider;
+
         ReplaceLayer(tileLayer, zIndex);
-    }
-
-    private void ReplaceLayer(RasterizingTileLayer layer, int zIndex)
-    {
-        var layerToBeRemoved =_map.Layers.FirstOrDefault(l => l.Name == zIndex.ToString());
-        layer.Enabled = layerToBeRemoved?.Enabled ?? true;
-
-        if (layerToBeRemoved is not null)
-        {
-            _map.Layers.Remove(layerToBeRemoved);
-        }
-        
-        // Find the correct position to insert based on logical layer indices
-        var insertPosition = 0;
-        foreach (var existingLayer in _map.Layers)
-        {
-            if (int.TryParse(existingLayer.Name, out var existingIndex) && existingIndex < zIndex)
-            {
-                insertPosition++;
-            }
-        }
-        
-        _map.Layers.Insert(insertPosition, layer);
-    }
-
-    private IReadOnlyList<IFeature> GetFeatures(int layerIndex)
-    {
-        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerIndex.ToString());
-        if (layer == null)
-        {
-            return [];
-        }
-
-        var features = ((IndexedMemoryProvider?)((Layer)layer).DataSource)!.Features;
-        
-        return features;
     }
 
     private static IEnumerable<IFeature> SortFeatures(IEnumerable<IFeature> features)
@@ -125,13 +195,119 @@ internal class MapsuiMapEngine : IMapEngine
         return features.OrderBy(f => ((MapObject?)f["mapObject"])?.RenderingOrder);
     }
 
+    private void ReplaceLayer(ILayer layer, int zIndex)
+    {
+        var layerName = $"{UserLayerPrefix}{zIndex}";
+        var layerToBeRemoved = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+        
+        ApplyPendingVisibilityState(layer, zIndex, layerToBeRemoved);
+        ApplyPendingFilterState(zIndex);
+        RemoveOldLayer(layerToBeRemoved, zIndex);
+        InsertLayerAtCorrectPosition(layer, zIndex);
+    }
+
+    private void ApplyPendingVisibilityState(ILayer layer, int zIndex, ILayer? layerToBeRemoved)
+    {
+        if (_pendingVisibilityState.TryGetValue(zIndex, out var pendingVisibility))
+        {
+            layer.Enabled = pendingVisibility;
+            _pendingVisibilityState.Remove(zIndex);
+        }
+        else
+        {
+            layer.Enabled = layerToBeRemoved?.Enabled ?? true;
+        }
+    }
+
+    private void ApplyPendingFilterState(int zIndex)
+    {
+        if (_pendingFilterState.TryGetValue(zIndex, out var pendingFilter))
+        {
+            if (_layerProviders.TryGetValue(zIndex, out var provider))
+            {
+                provider.Filter = (feature, resolution) =>
+                {
+                    var mapObject = (MapObject?)feature["mapObject"];
+                    if (mapObject is null)
+                    {
+                        return false;
+                    }
+
+                    return pendingFilter(mapObject, resolution);
+                };
+            }
+            _pendingFilterState.Remove(zIndex);
+        }
+    }
+
+    private void RemoveOldLayer(ILayer? layerToBeRemoved, int zIndex)
+    {
+        if (layerToBeRemoved is not null)
+        {
+            _map.Layers.Remove(layerToBeRemoved);
+            _layerProviders.Remove(zIndex);
+        }
+    }
+
+    private void InsertLayerAtCorrectPosition(ILayer layer, int zIndex)
+    {
+        var insertPosition = CalculateInsertPosition(zIndex);
+        _map.Layers.Insert(insertPosition, layer);
+    }
+
+    private int CalculateInsertPosition(int zIndex)
+    {
+        var insertPosition = 0;
+        
+        foreach (var existingLayer in _map.Layers)
+        {
+            if (IsBottomSystemLayer(existingLayer.Name))
+            {
+                insertPosition++;
+            }
+            else if (IsUserLayer(existingLayer.Name) && HasLowerZIndex(existingLayer.Name, zIndex))
+            {
+                insertPosition++;
+            }
+        }
+        
+        return insertPosition;
+    }
+
+    private static bool HasLowerZIndex(string layerName, int zIndex)
+    {
+        var layerNameWithoutPrefix = layerName[UserLayerPrefix.Length..];
+        return int.TryParse(layerNameWithoutPrefix, out var existingIndex) && existingIndex < zIndex;
+    }
+
+    private IEnumerable<IFeature> GetFeatures(int layerIndex)
+    {
+        var layerName = $"{UserLayerPrefix}{layerIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+        if (layer == null)
+        {
+            return [];
+        }
+
+        if (layer is WritableLayer wLayer)
+        {
+            return wLayer.GetFeatures();
+        }
+
+        if (layer is RasterizingTileLayer rasterTileLayer && rasterTileLayer.SourceLayer is Layer sourceLayer)
+        {
+            var provider = sourceLayer.DataSource as IndexedMemoryProvider;
+            return provider?.Features ?? [];
+        }
+
+        return [];
+    }
+
     public void SetFilter(int layerIndex, Func<MapObject, double, bool> filter)
     {
-        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerIndex.ToString());
-        if (layer is not null)
+        if (_layerProviders.TryGetValue(layerIndex, out var provider))
         {
-            var provider = (FilteredIndexedMemoryProvider?)((Layer)layer).DataSource;
-            provider?.SetFilter((feature, resolution) =>
+            provider.Filter = (feature, resolution) =>
             {
                 var mapObject = (MapObject?)feature["mapObject"];
                 if (mapObject is null)
@@ -140,7 +316,12 @@ internal class MapsuiMapEngine : IMapEngine
                 }
 
                 return filter(mapObject, resolution);
-            });
+            };
+            _pendingFilterState.Remove(layerIndex);
+        }
+        else
+        {
+            _pendingFilterState[layerIndex] = filter;
         }
     }
 
@@ -148,22 +329,41 @@ internal class MapsuiMapEngine : IMapEngine
     {
         foreach (var layer in _map.Layers)
         {
-            ((RasterizingTileLayer)layer).ClearCache();
+            if (layer is RasterizingTileLayer rasterLayer)
+            {
+                rasterLayer.ClearCache();
+            }
         }
     }
 
     public void SetVisible(int layerIndex, bool enable = true)
     {
-        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerIndex.ToString());
-        layer?.Enabled = enable;
+        var layerName = $"{UserLayerPrefix}{layerIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+        
+        if (layer is not null)
+        {
+            layer.Enabled = enable;
+            _map.Refresh();
+
+            _pendingVisibilityState.Remove(layerIndex);
+        }
+        else
+        {
+            _pendingVisibilityState[layerIndex] = enable;
+        }
     }
 
     public void RemoveAll(int zIndex = 0)
     {
-        var layer = _map.Layers.FirstOrDefault(l => l.Name == zIndex.ToString());
+        var layerName = $"{UserLayerPrefix}{zIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
         if (layer is not null)
         {
             _map.Layers.Remove(layer);
+            _pendingVisibilityState.Remove(zIndex);
+            _pendingFilterState.Remove(zIndex);
+            _layerProviders.Remove(zIndex);
         }
     }
 
@@ -171,28 +371,110 @@ internal class MapsuiMapEngine : IMapEngine
     {
         foreach (var layer in _map.Layers.ToList())
         {
-            if (layer.Name is not null && int.TryParse(layer.Name, out var zIndex))
+            if (layer.Name?.StartsWith(UserLayerPrefix) != true)
             {
-                if (((Layer)layer).DataSource is IndexedMemoryProvider provider)
-                {
-                    var remainingFeatures = provider.Features
-                        .Where(f => !Equals(f["mapObject"], mapObject))
-                        .ToList();
+                continue;
+            }
 
-                    if (remainingFeatures.Count != provider.Features.Count)
-                    {
-                        if (remainingFeatures.Count == 0)
-                        {
-                            _map.Layers.Remove(layer);
-                        }
-                        else
-                        {
-                            Replace(remainingFeatures, zIndex);
-                        }
-                    }
-                }
+            if (layer is WritableLayer wLayer)
+            {
+                RemoveFromWritableLayer(wLayer, mapObject);
+            }
+            else if (layer is RasterizingTileLayer rasterLayer)
+            {
+                RemoveFromRasterLayer(rasterLayer, mapObject);
             }
         }
+    }
+
+    private void RemoveFromWritableLayer(WritableLayer wLayer, MapObject mapObject)
+    {
+        var features = wLayer.GetFeatures().ToList();
+        var featureToRemove = features.FirstOrDefault(f => Equals(f["mapObject"], mapObject));
+
+        if (featureToRemove is null)
+        {
+            return;
+        }
+
+        var remainingFeatures = features
+            .Where(f => !Equals(f["mapObject"], mapObject))
+            .ToList();
+
+        var zIndex = ExtractZIndexFromLayerName(wLayer.Name);
+        if (zIndex is null)
+        {
+            return;
+        }
+
+        if (remainingFeatures.Count == 0)
+        {
+            RemoveLayer(wLayer, zIndex.Value);
+        }
+        else
+        {
+            Replace(remainingFeatures, zIndex.Value);
+        }
+    }
+
+    private void RemoveFromRasterLayer(RasterizingTileLayer rasterLayer, MapObject mapObject)
+    {
+        if (rasterLayer.SourceLayer is not Layer sourceLayer)
+        {
+            return;
+        }
+
+        if (sourceLayer.DataSource is not IndexedMemoryProvider provider)
+        {
+            return;
+        }
+
+        var remainingFeatures = provider.Features
+            .Where(f => !Equals(f["mapObject"], mapObject))
+            .ToList();
+
+        if (remainingFeatures.Count == provider.Features.Count)
+        {
+            return;
+        }
+
+        var zIndex = ExtractZIndexFromLayerName(rasterLayer.Name);
+        if (zIndex is null)
+        {
+            return;
+        }
+
+        if (remainingFeatures.Count == 0)
+        {
+            RemoveLayer(rasterLayer, zIndex.Value);
+        }
+        else if (remainingFeatures.Count <= 50)
+        {
+            Replace(remainingFeatures, zIndex.Value);
+        }
+        else
+        {
+            ReplaceWithPerformanceLayer(remainingFeatures, zIndex.Value);
+        }
+    }
+
+    private static int? ExtractZIndexFromLayerName(string? layerName)
+    {
+        if (layerName is null)
+        {
+            return null;
+        }
+
+        var layerNameWithoutPrefix = layerName[UserLayerPrefix.Length..];
+        return int.TryParse(layerNameWithoutPrefix, out var zIndex) ? zIndex : null;
+    }
+
+    private void RemoveLayer(ILayer layer, int zIndex)
+    {
+        _map.Layers.Remove(layer);
+        _pendingVisibilityState.Remove(zIndex);
+        _pendingFilterState.Remove(zIndex);
+        _layerProviders.Remove(zIndex);
     }
 
     public void MoveLocationMarker(Coordinate location, double bearing)
@@ -223,4 +505,25 @@ internal class MapsuiMapEngine : IMapEngine
 
         _map.Navigator.ZoomToBox(extent?.Grow(1000));
     }
+
+    /// <summary>
+    /// Checks if a layer name corresponds to a bottom system layer (rendered first).
+    /// </summary>
+    /// <param name="layerName">The layer name to check.</param>
+    /// <returns>True if the layer is a bottom system layer; otherwise, false.</returns>
+    private static bool IsBottomSystemLayer(string? layerName) => layerName?.StartsWith(BottomSystemLayerPrefix) == true;
+
+    /// <summary>
+    /// Checks if a layer name corresponds to a top system layer (rendered last).
+    /// </summary>
+    /// <param name="layerName">The layer name to check.</param>
+    /// <returns>True if the layer is a top system layer; otherwise, false.</returns>
+    private static bool IsTopSystemLayer(string? layerName) => layerName?.StartsWith(TopSystemLayerPrefix) == true;
+
+    /// <summary>
+    /// Checks if a layer name corresponds to a user layer.
+    /// </summary>
+    /// <param name="layerName">The layer name to check.</param>
+    /// <returns>True if the layer is a user layer; otherwise, false.</returns>
+    private static bool IsUserLayer(string? layerName) => layerName?.StartsWith(UserLayerPrefix) == true;
 }
