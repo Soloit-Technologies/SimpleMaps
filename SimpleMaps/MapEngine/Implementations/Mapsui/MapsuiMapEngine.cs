@@ -35,16 +35,18 @@ internal class MapsuiMapEngine : IMapEngine
     private const string UserLayerPrefix = "user_";
 
     /// <summary>
-    /// Stores pending visibility states for layers that don't exist yet.
+    /// Stores the desired visibility state for existing layers.
     /// Key is the layer index, value is the desired visibility state.
+    /// This persists across layer replacements to ensure visibility is maintained.
     /// </summary>
-    private readonly Dictionary<int, bool> _pendingVisibilityState = [];
+    private readonly Dictionary<int, bool> _desiredVisibilityState = [];
 
     /// <summary>
-    /// Stores pending filter states for layers that don't exist yet.
+    /// Stores the desired filter state for existing layers.
     /// Key is the layer index, value is the desired filter function.
+    /// This persists across layer replacements to ensure filters are maintained.
     /// </summary>
-    private readonly Dictionary<int, Func<MapObject, double, bool>> _pendingFilterState = [];
+    private readonly Dictionary<int, Func<MapObject, double, bool>> _desiredFilterState = [];
 
     /// <summary>
     /// Maps layer index to the underlying data provider for quick access.
@@ -208,10 +210,9 @@ internal class MapsuiMapEngine : IMapEngine
 
     private void ApplyPendingVisibilityState(ILayer layer, int zIndex, ILayer? layerToBeRemoved)
     {
-        if (_pendingVisibilityState.TryGetValue(zIndex, out var pendingVisibility))
+        if (_desiredVisibilityState.TryGetValue(zIndex, out var desiredVisibility))
         {
-            layer.Enabled = pendingVisibility;
-            _pendingVisibilityState.Remove(zIndex);
+            layer.Enabled = desiredVisibility;
         }
         else
         {
@@ -221,7 +222,7 @@ internal class MapsuiMapEngine : IMapEngine
 
     private void ApplyPendingFilterState(int zIndex)
     {
-        if (_pendingFilterState.TryGetValue(zIndex, out var pendingFilter))
+        if (_desiredFilterState.TryGetValue(zIndex, out var desiredFilter))
         {
             if (_layerProviders.TryGetValue(zIndex, out var provider))
             {
@@ -233,10 +234,9 @@ internal class MapsuiMapEngine : IMapEngine
                         return false;
                     }
 
-                    return pendingFilter(mapObject, resolution);
+                    return desiredFilter(mapObject, resolution);
                 };
             }
-            _pendingFilterState.Remove(zIndex);
         }
     }
 
@@ -305,6 +305,8 @@ internal class MapsuiMapEngine : IMapEngine
 
     public void SetFilter(int layerIndex, Func<MapObject, double, bool> filter)
     {
+        _desiredFilterState[layerIndex] = filter;
+        
         if (_layerProviders.TryGetValue(layerIndex, out var provider))
         {
             provider.Filter = (feature, resolution) =>
@@ -317,11 +319,6 @@ internal class MapsuiMapEngine : IMapEngine
 
                 return filter(mapObject, resolution);
             };
-            _pendingFilterState.Remove(layerIndex);
-        }
-        else
-        {
-            _pendingFilterState[layerIndex] = filter;
         }
     }
 
@@ -341,16 +338,12 @@ internal class MapsuiMapEngine : IMapEngine
         var layerName = $"{UserLayerPrefix}{layerIndex}";
         var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
         
+        _desiredVisibilityState[layerIndex] = enable;
+        
         if (layer is not null)
         {
             layer.Enabled = enable;
             _map.Refresh();
-
-            _pendingVisibilityState.Remove(layerIndex);
-        }
-        else
-        {
-            _pendingVisibilityState[layerIndex] = enable;
         }
     }
 
@@ -361,8 +354,8 @@ internal class MapsuiMapEngine : IMapEngine
         if (layer is not null)
         {
             _map.Layers.Remove(layer);
-            _pendingVisibilityState.Remove(zIndex);
-            _pendingFilterState.Remove(zIndex);
+            _desiredVisibilityState.Remove(zIndex);
+            _desiredFilterState.Remove(zIndex);
             _layerProviders.Remove(zIndex);
         }
     }
@@ -472,8 +465,8 @@ internal class MapsuiMapEngine : IMapEngine
     private void RemoveLayer(ILayer layer, int zIndex)
     {
         _map.Layers.Remove(layer);
-        _pendingVisibilityState.Remove(zIndex);
-        _pendingFilterState.Remove(zIndex);
+        _desiredVisibilityState.Remove(zIndex);
+        _desiredFilterState.Remove(zIndex);
         _layerProviders.Remove(zIndex);
     }
 
