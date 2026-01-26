@@ -1,6 +1,7 @@
 using Microsoft.Maui.Hosting;
 using SimpleMaps.MapEngine;
 using SimpleMaps.MapEngine.Implementations.Mapsui;
+using SkiaSharp.Views.Maui.Controls.Hosting;
 
 namespace SimpleMaps.Maui;
 
@@ -17,6 +18,7 @@ public static class DependencyInjection
     /// <returns>The MauiAppBuilder for chaining.</returns>
     public static MauiAppBuilder UseSimpleMaps(this MauiAppBuilder builder)
     {
+        builder.UseSkiaSharp();
         builder.Services.AddSingleton<IMapEngine, MapsuiMapEngine>();
         return builder;
     }
