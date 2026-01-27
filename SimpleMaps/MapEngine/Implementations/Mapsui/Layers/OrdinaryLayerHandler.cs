@@ -7,7 +7,7 @@ namespace SimpleMaps.MapEngine.Implementations.Mapsui.Layers;
 /// <summary>
 /// Handles management of ordinary writable layers for feature counts <= 50.
 /// </summary>
-internal class OrdinaryLayerHandler(Func<IEnumerable<IFeature>, IEnumerable<IFeature>> sortFeatures) : ILayerHandler
+internal class OrdinaryLayerHandler(Map map, Func<IEnumerable<IFeature>, IEnumerable<IFeature>> sortFeatures) : ILayerHandler
 {
     public ILayer CreateOrUpdateLayer(IEnumerable<IFeature> features, int zIndex)
     {
@@ -61,8 +61,25 @@ internal class OrdinaryLayerHandler(Func<IEnumerable<IFeature>, IEnumerable<IFea
 
     public void ApplyFilter(ILayer layer, Func<MapObject, double, bool> filter)
     {
-        // Ordinary layers don't support filtering directly on the layer
-        // Filtering would require recreating the layer with filtered features
+        if (layer is not WritableLayer wLayer)
+        {
+            return;
+        }
+
+        // Create a combined function that filters and sorts
+        IEnumerable<IFeature> FilteredAndSorted(IEnumerable<IFeature> features)
+        {
+            var filtered = features.Where(f =>
+            {
+                var mapObject = (MapObject?)f["mapObject"];
+                return mapObject is not null && filter(mapObject, map.Navigator.Viewport.Resolution);
+            });
+
+            return sortFeatures(filtered);
+        }
+
+        // Apply the combined filter and sort to the layer
+        wLayer.SortFeatures = FilteredAndSorted;
     }
 
     public bool CanHandle(ILayer layer) => layer is WritableLayer;

@@ -89,7 +89,7 @@ internal class MapsuiMapEngine : IMapEngine
     {
         DefaultRendererFactory.Create = () => new MapRenderer();
 
-        _ordinaryLayerHandler = new OrdinaryLayerHandler(features => SortFeatures(features));
+        _ordinaryLayerHandler = new OrdinaryLayerHandler(_map, features => SortFeatures(features));
         _performanceLayerHandler = new PerformanceLayerHandler(features => SortFeatures(features), _layerProviders);
 
         _positionLayer = new(_map)
@@ -175,7 +175,7 @@ internal class MapsuiMapEngine : IMapEngine
         var layerToBeRemoved = _map.Layers.FirstOrDefault(l => l.Name == layerName);
         
         ApplyPendingVisibilityState(layer, zIndex, layerToBeRemoved);
-        ApplyPendingFilterState(zIndex);
+        ApplyPendingFilterState(layer, zIndex);
         RemoveOldLayer(layerToBeRemoved, zIndex);
         InsertLayerAtCorrectPosition(layer, zIndex);
     }
@@ -192,17 +192,12 @@ internal class MapsuiMapEngine : IMapEngine
         }
     }
 
-    private void ApplyPendingFilterState(int zIndex)
+    private void ApplyPendingFilterState(ILayer layer, int zIndex)
     {
         if (_desiredFilterState.TryGetValue(zIndex, out var desiredFilter))
         {
-            var layerName = $"{UserLayerPrefix}{zIndex}";
-            var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
-            
-            if (layer is not null)
-            {
-                _performanceLayerHandler.ApplyFilter(layer, desiredFilter);
-            }
+            _ordinaryLayerHandler.ApplyFilter(layer, desiredFilter);
+            _performanceLayerHandler.ApplyFilter(layer, desiredFilter);
         }
     }
 
@@ -276,8 +271,9 @@ internal class MapsuiMapEngine : IMapEngine
         var layerName = $"{UserLayerPrefix}{layerIndex}";
         var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
         
-        if (layer is not null && _performanceLayerHandler.CanHandle(layer))
+        if (layer is not null)
         {
+            _ordinaryLayerHandler.ApplyFilter(layer, filter);
             _performanceLayerHandler.ApplyFilter(layer, filter);
         }
     }
