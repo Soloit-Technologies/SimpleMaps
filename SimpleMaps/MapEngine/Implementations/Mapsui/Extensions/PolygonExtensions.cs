@@ -1,4 +1,4 @@
-﻿using Mapsui;
+using Mapsui;
 using Mapsui.Nts;
 using Mapsui.Styles;
 using NetTopologySuite.Geometries;
@@ -6,7 +6,7 @@ using Polygon = SimpleMaps.MapObjects.Geometries.Polygon;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class PolygonExtensions
+public static class PolygonExtensions
 {
     public static IFeature ToFeature(this Polygon polygon)
     {

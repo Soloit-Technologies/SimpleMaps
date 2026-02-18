@@ -4,7 +4,7 @@ using SimpleMaps.MapObjects.Geometries;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class MapObjectExtensions
+public static class MapObjectExtensions
 {
     public static IFeature ToFeature(this MapObject mapObject) => mapObject switch
     {

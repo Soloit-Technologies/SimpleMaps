@@ -1,11 +1,11 @@
-﻿using Mapsui;
+using Mapsui;
 using Mapsui.Layers;
 using Mapsui.Styles;
 using SimpleMaps.MapObjects;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class LabelExtensions
+public static class LabelExtensions
 {
     public static IFeature ToFeature(this Label label)
     {

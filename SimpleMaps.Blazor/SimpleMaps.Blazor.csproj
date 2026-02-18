@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -15,11 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Mapsui" Version="5.0.2" />
-    <PackageReference Include="Mapsui.Nts" Version="5.0.2" />
-    <PackageReference Include="Mapsui.Rendering.Skia" Version="5.0.2" />
-    <PackageReference Include="Mapsui.Tiling" Version="5.0.2" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.6" />
+    <PackageReference Include="Mapsui.Blazor" Version="5.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SimpleMaps\SimpleMaps.csproj" />
   </ItemGroup>
 
 </Project>

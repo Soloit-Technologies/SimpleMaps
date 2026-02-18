@@ -1,4 +1,4 @@
-﻿using Mapsui;
+using Mapsui;
 using Mapsui.Layers;
 using Mapsui.Styles;
 using SimpleMaps.MapObjects;
@@ -6,7 +6,7 @@ using Color = Mapsui.Styles.Color;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class PinExtensions
+public static class PinExtensions
 {
     public static IFeature ToFeature(this Pin pin)
     {

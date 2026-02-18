@@ -1,10 +1,10 @@
-﻿using Mapsui;
+using Mapsui;
 using Mapsui.Nts;
 using Mapsui.Styles;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class LineStringExtensions
+public static class LineStringExtensions
 {
     public static IFeature ToFeature(this MapObjects.Geometries.LineString lineString)
     {

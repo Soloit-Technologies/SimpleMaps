@@ -1,0 +1,22 @@
+@using Mapsui.UI.Blazor
+
+<div class="simple-maps-container">
+    <div class="simple-maps-canvas-container">
+        <MapControlComponent @ref="_mapControl" />
+    </div>
+</div>
+
+<style>
+    .simple-maps-canvas-container canvas {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+    }
+
+    .simple-maps-container {
+        padding: 0;
+        top: 0;
+        height: 100%;
+        position: relative;
+    }
+</style>

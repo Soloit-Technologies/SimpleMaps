@@ -1,6 +1,9 @@
+using System.ComponentModel;
 using Mapsui;
 using Mapsui.Animations;
+using Mapsui.Extensions;
 using Mapsui.Layers;
+using Mapsui.Projections;
 using Mapsui.Rendering;
 using Mapsui.Rendering.Skia;
 using Mapsui.Tiling;
@@ -8,7 +11,9 @@ using Mapsui.Tiling.Layers;
 using SimpleMaps.Coordinates;
 using SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 using SimpleMaps.MapEngine.Implementations.Mapsui.Layers;
+using SimpleMaps.MapEngine.Implementations.Mapsui.Tiles;
 using SimpleMaps.MapObjects;
+using SimpleMaps.Tiles;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui;
 
@@ -32,6 +37,11 @@ internal class MapsuiMapEngine : IMapEngine
     /// Layer name prefix for user layers
     /// </summary>
     private const string UserLayerPrefix = "user_";
+
+    /// <summary>
+    /// Layer name prefix for external tile layers provided via <see cref="ITileProvider"/>.
+    /// </summary>
+    private const string TileLayerPrefix = "tile_";
 
     /// <summary>
     /// Stores the desired visibility state for existing layers.
@@ -64,7 +74,11 @@ internal class MapsuiMapEngine : IMapEngine
 
     public Map MapsuiMap => _map;
 
-    public bool ShowLocationMarker 
+    public object NativeMap => _map;
+
+    public event EventHandler<ViewportEventArgs>? ViewportChanged;
+
+    public bool ShowLocationMarker
     { 
         get => _positionLayer.Enabled; 
         set => _positionLayer.Enabled = value; 
@@ -104,6 +118,8 @@ internal class MapsuiMapEngine : IMapEngine
 
         _map.Layers.Add(mapLayer);
         _map.Layers.Add(_positionLayer);
+
+        _map.Navigator.ViewportChanged += OnNativeViewportChanged;
     }
 
     public void Add(MapObject mapObject, int zIndex = 0)
@@ -219,10 +235,14 @@ internal class MapsuiMapEngine : IMapEngine
     private int CalculateInsertPosition(int zIndex)
     {
         var insertPosition = 0;
-        
+
         foreach (var existingLayer in _map.Layers)
         {
             if (IsBottomSystemLayer(existingLayer.Name))
+            {
+                insertPosition++;
+            }
+            else if (IsTileLayer(existingLayer.Name))
             {
                 insertPosition++;
             }
@@ -231,14 +251,13 @@ internal class MapsuiMapEngine : IMapEngine
                 insertPosition++;
             }
         }
-        
+
         return insertPosition;
     }
 
     private static bool HasLowerZIndex(string layerName, int zIndex)
     {
-        var layerNameWithoutPrefix = layerName[UserLayerPrefix.Length..];
-        return int.TryParse(layerNameWithoutPrefix, out var existingIndex) && existingIndex < zIndex;
+        return HasLowerZIndex(layerName, UserLayerPrefix, zIndex);
     }
 
     private IEnumerable<IFeature> GetFeatures(int layerIndex)
@@ -406,11 +425,106 @@ internal class MapsuiMapEngine : IMapEngine
         _map.Navigator.CenterOn(location.ToMPoint());
     }
 
+    public void CenterOn(Coordinate location, double resolution)
+    {
+        _map.Navigator.CenterOnAndZoomTo(location.ToMPoint(), resolution);
+    }
+
+    public void FlyTo(Coordinate location)
+    {
+        _map.Navigator.FlyTo(location.ToMPoint(), _map.Navigator.Resolutions[15]);
+    }
+
     public void ZoomAndCenterOn(IEnumerable<MapObject> mapObjects)
     {
         var extent = mapObjects.Select(mapObject => mapObject.ToFeature().Extent).Aggregate((extent1, extent2) => extent1?.Join(extent2));
 
         _map.Navigator.ZoomToBox(extent?.Grow(1000));
+    }
+
+    public void AddTileLayer(ITileProvider provider, int zIndex)
+    {
+        var layerName = $"{TileLayerPrefix}{zIndex}";
+
+        var existing = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+        if (existing is not null)
+        {
+            _map.Layers.Remove(existing);
+        }
+
+        var tileSource = new ExternalTileSource(provider);
+        var tileLayer = new TileLayer(tileSource)
+        {
+            Name = layerName
+        };
+
+        var insertPosition = CalculateTileLayerInsertPosition(zIndex);
+        _map.Layers.Insert(insertPosition, tileLayer);
+    }
+
+    public void RemoveTileLayer(int zIndex)
+    {
+        var layerName = $"{TileLayerPrefix}{zIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+
+        if (layer is not null)
+        {
+            _map.Layers.Remove(layer);
+        }
+    }
+
+    public void SetTileLayerVisible(int zIndex, bool visible = true)
+    {
+        var layerName = $"{TileLayerPrefix}{zIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+
+        if (layer is not null)
+        {
+            layer.Enabled = visible;
+            _map.Refresh();
+        }
+    }
+
+    public void ClearTileLayerCache(int zIndex)
+    {
+        var layerName = $"{TileLayerPrefix}{zIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == layerName);
+
+        if (layer is TileLayer tileLayer)
+        {
+            tileLayer.ClearCache();
+            _map.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Calculates the correct insert position for a tile layer.
+    /// Tile layers are inserted after bottom system layers and after any tile layers with lower z-index,
+    /// but before user layers and top system layers.
+    /// </summary>
+    private int CalculateTileLayerInsertPosition(int zIndex)
+    {
+        var insertPosition = 0;
+
+        foreach (var existingLayer in _map.Layers)
+        {
+            if (IsBottomSystemLayer(existingLayer.Name))
+            {
+                insertPosition++;
+            }
+            else if (IsTileLayer(existingLayer.Name) && HasLowerZIndex(existingLayer.Name, TileLayerPrefix, zIndex))
+            {
+                insertPosition++;
+            }
+        }
+
+        return insertPosition;
+    }
+
+    private static bool HasLowerZIndex(string layerName, string prefix, int zIndex)
+    {
+        var layerNameWithoutPrefix = layerName[prefix.Length..];
+        return int.TryParse(layerNameWithoutPrefix, out var existingIndex) && existingIndex < zIndex;
     }
 
     /// <summary>
@@ -433,4 +547,32 @@ internal class MapsuiMapEngine : IMapEngine
     /// <param name="layerName">The layer name to check.</param>
     /// <returns>True if the layer is a user layer; otherwise, false.</returns>
     private static bool IsUserLayer(string? layerName) => layerName?.StartsWith(UserLayerPrefix) == true;
+
+    /// <summary>
+    /// Checks if a layer name corresponds to an external tile layer.
+    /// </summary>
+    /// <param name="layerName">The layer name to check.</param>
+    /// <returns>True if the layer is a tile layer; otherwise, false.</returns>
+    private static bool IsTileLayer(string? layerName) => layerName?.StartsWith(TileLayerPrefix) == true;
+
+    private void OnNativeViewportChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        var viewport = _map.Navigator.Viewport;
+        var centerLonLat = SphericalMercator.ToLonLat(viewport.CenterX, viewport.CenterY);
+        var center = new WGS84Coordinate(centerLonLat.lat, centerLonLat.lon);
+
+        var extent = viewport.ToExtent();
+        var tl = SphericalMercator.ToLonLat(extent.MinX, extent.MaxY);
+        var tr = SphericalMercator.ToLonLat(extent.MaxX, extent.MaxY);
+        var bl = SphericalMercator.ToLonLat(extent.MinX, extent.MinY);
+        var br = SphericalMercator.ToLonLat(extent.MaxX, extent.MinY);
+
+        ViewportChanged?.Invoke(this, new ViewportEventArgs(
+            center,
+            viewport.Resolution,
+            new WGS84Coordinate(tl.lat, tl.lon),
+            new WGS84Coordinate(tr.lat, tr.lon),
+            new WGS84Coordinate(bl.lat, bl.lon),
+            new WGS84Coordinate(br.lat, br.lon)));
+    }
 }

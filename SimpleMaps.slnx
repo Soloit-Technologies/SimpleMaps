@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="SimpleMaps.Blazor/SimpleMaps.Blazor.csproj" />
   <Project Path="SimpleMaps.Maui/SimpleMaps.Maui.csproj" />
   <Project Path="SimpleMaps/SimpleMaps.csproj" />
 </Solution>

@@ -1,9 +1,9 @@
-﻿using Mapsui;
+using Mapsui;
 using Coordinate = SimpleMaps.Coordinates.Coordinate;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class CoordinateExtensions
+public static class CoordinateExtensions
 {
     public static MPoint ToMPoint(this Coordinate coordinate)
     {

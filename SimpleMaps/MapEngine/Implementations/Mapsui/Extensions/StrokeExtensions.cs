@@ -1,9 +1,9 @@
-﻿using Mapsui.Styles;
+using Mapsui.Styles;
 using SimpleMaps.MapObjects.Styles;
 
 namespace SimpleMaps.MapEngine.Implementations.Mapsui.Extensions;
 
-internal static class StrokeExtensions
+public static class StrokeExtensions
 {
     public static PenStyle ToPenStyle(this Stroke stroke) => stroke switch
     {
