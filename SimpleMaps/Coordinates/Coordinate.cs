@@ -1,14 +1,8 @@
-using System.Text.Json.Serialization;
-
 namespace SimpleMaps.Coordinates;
 
 /// <summary>
 /// Abstract base class representing a geographic coordinate in a specific coordinate system.
 /// </summary>
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "coordinateSystem")]
-[JsonDerivedType(typeof(WGS84Coordinate), "WGS84")]
-[JsonDerivedType(typeof(WebMercatorCoordinate), "WebMercator")]
-[JsonDerivedType(typeof(RT90Coordinate), "RT90")]
 public abstract class Coordinate : IEquatable<Coordinate>
 {
     /// <summary>

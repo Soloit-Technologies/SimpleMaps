@@ -1,5 +1,4 @@
 ﻿using System.Globalization;
-using System.Text.Json.Serialization;
 
 namespace SimpleMaps.Coordinates;
 
@@ -20,7 +19,6 @@ public class WGS84Coordinate : Coordinate, IParsable<WGS84Coordinate>
     /// <summary>
     /// Initializes a new instance of the WGS84Coordinate class.
     /// </summary>
-    [JsonConstructor]
     public WGS84Coordinate(double latitude, double longitude)
     {
         Latitude = latitude;

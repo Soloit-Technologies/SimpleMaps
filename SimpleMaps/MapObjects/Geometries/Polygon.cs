@@ -1,4 +1,4 @@
-﻿using SimpleMaps.Coordinates;
+using SimpleMaps.Coordinates;
 using SimpleMaps.MapObjects.Styles;
 using System.Drawing;
 using NtsCoordinate = NetTopologySuite.Geometries.Coordinate;
