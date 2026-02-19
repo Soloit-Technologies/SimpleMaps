@@ -16,6 +16,11 @@ public interface IMapEngine
     /// </summary>
     event EventHandler<ViewportEventArgs>? ViewportChanged;
 
+    /// <summary>
+    /// Raised when the user clicks/taps on the map.
+    /// </summary>
+    event EventHandler<MapEventArgs>? MapClicked;
+
     public bool ShowLocationMarker { get; set; }
 
     public Coordinate MyLocation { get; }

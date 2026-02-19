@@ -78,6 +78,8 @@ internal class MapsuiMapEngine : IMapEngine
 
     public event EventHandler<ViewportEventArgs>? ViewportChanged;
 
+    public event EventHandler<MapEventArgs>? MapClicked;
+
     public bool ShowLocationMarker
     { 
         get => _positionLayer.Enabled; 
@@ -120,6 +122,7 @@ internal class MapsuiMapEngine : IMapEngine
         _map.Layers.Add(_positionLayer);
 
         _map.Navigator.ViewportChanged += OnNativeViewportChanged;
+        _map.Info += OnNativeMapInfo;
     }
 
     public void Add(MapObject mapObject, int zIndex = 0)
@@ -574,5 +577,17 @@ internal class MapsuiMapEngine : IMapEngine
             new WGS84Coordinate(tr.lat, tr.lon),
             new WGS84Coordinate(bl.lat, bl.lon),
             new WGS84Coordinate(br.lat, br.lon)));
+    }
+
+    private void OnNativeMapInfo(object? sender, MapInfoEventArgs e)
+    {
+        if (e.WorldPosition is not null)
+        {
+            var lonLat = SphericalMercator.ToLonLat(e.WorldPosition.X, e.WorldPosition.Y);
+            var coordinate = new WGS84Coordinate(lonLat.lat, lonLat.lon);
+            MapClicked?.Invoke(this, new MapEventArgs(coordinate));
+        }
+
+        e.Handled = true;
     }
 }
