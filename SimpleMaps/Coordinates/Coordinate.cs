@@ -1,8 +1,14 @@
+using System.Text.Json.Serialization;
+
 namespace SimpleMaps.Coordinates;
 
 /// <summary>
 /// Abstract base class representing a geographic coordinate in a specific coordinate system.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "coordinateSystem")]
+[JsonDerivedType(typeof(WGS84Coordinate), "WGS84")]
+[JsonDerivedType(typeof(WebMercatorCoordinate), "WebMercator")]
+[JsonDerivedType(typeof(RT90Coordinate), "RT90")]
 public abstract class Coordinate : IEquatable<Coordinate>
 {
     /// <summary>
@@ -49,6 +55,18 @@ public abstract class Coordinate : IEquatable<Coordinate>
             return webMercator;
 
         return (WebMercatorCoordinate)ConvertTo(CoordinateSystem.WebMercator);
+    }
+
+    /// <summary>
+    /// Converts this coordinate to RT90 2.5 gon V (Swedish national grid).
+    /// </summary>
+    /// <returns>An RT90Coordinate instance.</returns>
+    public RT90Coordinate ToRT90()
+    {
+        if (this is RT90Coordinate rt90)
+            return rt90;
+
+        return (RT90Coordinate)ConvertTo(CoordinateSystem.RT90);
     }
 
     /// <summary>

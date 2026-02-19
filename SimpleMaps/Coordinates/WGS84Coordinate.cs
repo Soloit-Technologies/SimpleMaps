@@ -67,6 +67,7 @@ public class WGS84Coordinate : Coordinate, IParsable<WGS84Coordinate>
         {
             CoordinateSystem.WGS84 => new WGS84Coordinate(Latitude, Longitude),
             CoordinateSystem.WebMercator => ConvertToWebMercator(),
+            CoordinateSystem.RT90 => RT90Coordinate.FromWGS84(Latitude, Longitude),
             _ => throw new ArgumentException($"Unknown coordinate system: {targetSystem}", nameof(targetSystem))
         };
     }

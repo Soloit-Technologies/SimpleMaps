@@ -103,7 +103,10 @@ public class TileRenderer : IDisposable
     {
         DefaultRendererFactory.Create = () => new MapRenderer();
 
-        var features = mapObjects.Select(m => m.ToFeature()).ToList();
+        var features = mapObjects
+            .OrderBy(m => m.RenderingOrder)
+            .Select(m => m.ToFeature())
+            .ToList();
 
         if (features.Count == 0)
         {
@@ -160,7 +163,7 @@ public class TileRenderer : IDisposable
     }
 
     /// <summary>
-    /// An IndexedMemoryProvider that supports resolution-based filtering via a delegate.
+    /// An IndexedMemoryProvider that supports resolution-based filtering and rendering order.
     /// </summary>
     private class FilterableProvider(
         IEnumerable<IFeature> features,
@@ -170,14 +173,13 @@ public class TileRenderer : IDisposable
         {
             var allFeatures = await base.GetFeaturesAsync(fetchInfo);
 
-            if (visibilityFilter is null)
-            {
-                return allFeatures;
-            }
+            var visibleFeatures = visibilityFilter is null
+                ? allFeatures
+                : allFeatures.Where(f =>
+                    f["mapObject"] is MapObject mapObject &&
+                    visibilityFilter(mapObject, fetchInfo.Resolution));
 
-            return allFeatures.Where(f =>
-                f["mapObject"] is MapObject mapObject &&
-                visibilityFilter(mapObject, fetchInfo.Resolution));
+            return [.. visibleFeatures.OrderBy(f => f["mapObject"] is MapObject m ? m.RenderingOrder : 0)];
         }
     }
 }

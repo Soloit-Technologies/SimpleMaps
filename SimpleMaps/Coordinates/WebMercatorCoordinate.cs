@@ -23,6 +23,7 @@ public class WebMercatorCoordinate(double x, double y) : Coordinate
     {
         CoordinateSystem.WebMercator => new WebMercatorCoordinate(X, Y),
         CoordinateSystem.WGS84 => ConvertToWGS84(),
+        CoordinateSystem.RT90 => ConvertToWGS84().ConvertTo(CoordinateSystem.RT90),
         _ => throw new ArgumentException($"Unknown coordinate system: {targetSystem}", nameof(targetSystem))
     };
 
