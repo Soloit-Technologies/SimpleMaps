@@ -506,7 +506,7 @@ internal class MapsuiMapEngine : IMapEngine
         }
     }
 
-    public async Task AddWmsLayerAsync(string url, string layerName, int zIndex, string? proxyBaseUrl = null)
+    public async Task AddWmsLayerAsync(string url, IReadOnlyList<string> layerNames, int zIndex, string? proxyBaseUrl = null)
     {
         var wmsLayerName = $"{WmsLayerPrefix}{zIndex}";
 
@@ -526,7 +526,11 @@ internal class MapsuiMapEngine : IMapEngine
         provider.ContinueOnError = true;
         provider.CRS = "EPSG:3857";
         provider.SetImageFormat(provider.OutputFormats[0]);
-        provider.AddLayer(layerName);
+
+        foreach (var name in layerNames)
+        {
+            provider.AddLayer(name);
+        }
 
         var imageLayer = new ImageLayer(wmsLayerName)
         {
