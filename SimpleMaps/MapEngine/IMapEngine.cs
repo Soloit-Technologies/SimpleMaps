@@ -70,4 +70,24 @@ public interface IMapEngine
     void SetTileLayerVisible(int zIndex, bool visible = true);
 
     void ClearTileLayerCache(int zIndex);
+
+    /// <summary>
+    /// Adds a WMS layer to the map at the specified z-index.
+    /// </summary>
+    /// <param name="url">The WMS GetCapabilities URL.</param>
+    /// <param name="layerName">The WMS layer name to display.</param>
+    /// <param name="zIndex">The z-index for layer ordering.</param>
+    /// <param name="proxyBaseUrl">Optional proxy base URL. When set, all WMS requests are routed through this proxy
+    /// by replacing the original WMS host with this URL. The proxy is responsible for authentication.</param>
+    Task AddWmsLayerAsync(string url, string layerName, int zIndex, string? proxyBaseUrl = null);
+
+    /// <summary>
+    /// Removes a WMS layer at the specified z-index.
+    /// </summary>
+    void RemoveWmsLayer(int zIndex);
+
+    /// <summary>
+    /// Sets the visibility of a WMS layer.
+    /// </summary>
+    void SetWmsLayerVisible(int zIndex, bool visible = true);
 }

@@ -6,6 +6,7 @@ using Mapsui.Layers;
 using Mapsui.Projections;
 using Mapsui.Rendering;
 using Mapsui.Rendering.Skia;
+using Mapsui.Styles;
 using Mapsui.Tiling;
 using Mapsui.Tiling.Layers;
 using SimpleMaps.Coordinates;
@@ -42,6 +43,11 @@ internal class MapsuiMapEngine : IMapEngine
     /// Layer name prefix for external tile layers provided via <see cref="ITileProvider"/>.
     /// </summary>
     private const string TileLayerPrefix = "tile_";
+
+    /// <summary>
+    /// Layer name prefix for WMS layers.
+    /// </summary>
+    private const string WmsLayerPrefix = "wms_";
 
     /// <summary>
     /// Stores the desired visibility state for existing layers.
@@ -498,6 +504,104 @@ internal class MapsuiMapEngine : IMapEngine
             tileLayer.ClearCache();
             _map.Refresh();
         }
+    }
+
+    public async Task AddWmsLayerAsync(string url, string layerName, int zIndex, string? proxyBaseUrl = null)
+    {
+        var wmsLayerName = $"{WmsLayerPrefix}{zIndex}";
+
+        var existing = _map.Layers.FirstOrDefault(l => l.Name == wmsLayerName);
+        if (existing is not null)
+        {
+            _map.Layers.Remove(existing);
+        }
+
+        Func<string, Task<byte[]>>? getBytesAsync = proxyBaseUrl is not null
+            ? requestUrl => GetProxiedBytesAsync(requestUrl, proxyBaseUrl)
+            : null;
+
+        var provider = await global::Mapsui.Providers.Wms.WmsProvider.CreateAsync(url, getBytesAsync: getBytesAsync);
+
+        provider.TimeOut = 20000;
+        provider.ContinueOnError = true;
+        provider.CRS = "EPSG:3857";
+        provider.SetImageFormat(provider.OutputFormats[0]);
+        provider.AddLayer(layerName);
+
+        var imageLayer = new ImageLayer(wmsLayerName)
+        {
+            DataSource = provider,
+            Style = new RasterStyle()
+        };
+
+        // Insert WMS layer right after the base map so it acts as a base layer,
+        // and all other layers (tile, user) render on top.
+        var insertPosition = _map.Layers.Count(l => IsBottomSystemLayer(l.Name));
+        _map.Layers.Insert(insertPosition, imageLayer);
+
+        // Hide the default base map since the WMS layer replaces it.
+        SetBaseMapVisible(false);
+    }
+
+    public void RemoveWmsLayer(int zIndex)
+    {
+        var wmsLayerName = $"{WmsLayerPrefix}{zIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == wmsLayerName);
+        if (layer is not null)
+        {
+            _map.Layers.Remove(layer);
+        }
+
+        // Restore the base map if no WMS layers remain.
+        if (!_map.Layers.Any(l => IsWmsLayer(l.Name)))
+        {
+            SetBaseMapVisible(true);
+        }
+    }
+
+    public void SetWmsLayerVisible(int zIndex, bool visible = true)
+    {
+        var wmsLayerName = $"{WmsLayerPrefix}{zIndex}";
+        var layer = _map.Layers.FirstOrDefault(l => l.Name == wmsLayerName);
+        if (layer is not null)
+        {
+            layer.Enabled = visible;
+            _map.Refresh();
+        }
+    }
+
+    private void SetBaseMapVisible(bool visible)
+    {
+        var baseMap = _map.Layers.FirstOrDefault(l => IsBottomSystemLayer(l.Name));
+        if (baseMap is not null)
+        {
+            baseMap.Enabled = visible;
+            _map.Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Routes a WMS request through the server-side proxy. Extracts the query string
+    /// from the original WMS URL and appends it to the proxy base URL.
+    /// </summary>
+    private static async Task<byte[]> GetProxiedBytesAsync(string requestUrl, string proxyBaseUrl)
+    {
+        var uri = new Uri(requestUrl, UriKind.RelativeOrAbsolute);
+        var query = uri.IsAbsoluteUri ? uri.Query : "";
+        var separator = proxyBaseUrl.Contains('?') ? "&" : "?";
+        var proxiedUrl = query.Length > 1
+            ? $"{proxyBaseUrl}{separator}{query.TrimStart('?')}"
+            : proxyBaseUrl;
+
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var response = await client.GetAsync(proxiedUrl);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+
+    private static bool IsWmsLayer(string? layerName)
+    {
+        return layerName?.StartsWith(WmsLayerPrefix) == true;
     }
 
     /// <summary>
