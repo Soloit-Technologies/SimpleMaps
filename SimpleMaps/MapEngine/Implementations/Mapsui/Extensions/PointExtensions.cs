@@ -18,7 +18,8 @@ public static class PointExtensions
         {
             Fill = new Brush(point.Color.ToMapsuiColor()),
             SymbolType = SymbolType.Ellipse,
-            SymbolScale = point.Size / 32.0
+            SymbolScale = point.Size / 32.0,
+            Outline = null
         });
 
         return feature;
