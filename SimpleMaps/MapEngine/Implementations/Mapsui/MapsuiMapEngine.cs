@@ -670,7 +670,9 @@ internal class MapsuiMapEngine : IMapEngine
     {
         var viewport = _map.Navigator.Viewport;
         var centerLonLat = SphericalMercator.ToLonLat(viewport.CenterX, viewport.CenterY);
-        var center = new WGS84Coordinate(centerLonLat.lat, centerLonLat.lon);
+        var center = new WGS84Coordinate(
+            Math.Clamp(centerLonLat.lat, -90.0, 90.0),
+            Math.Clamp(centerLonLat.lon, -180.0, 180.0));
 
         var extent = viewport.ToExtent();
         var tl = SphericalMercator.ToLonLat(extent.MinX, extent.MaxY);
@@ -681,10 +683,10 @@ internal class MapsuiMapEngine : IMapEngine
         ViewportChanged?.Invoke(this, new ViewportEventArgs(
             center,
             viewport.Resolution,
-            new WGS84Coordinate(tl.lat, tl.lon),
-            new WGS84Coordinate(tr.lat, tr.lon),
-            new WGS84Coordinate(bl.lat, bl.lon),
-            new WGS84Coordinate(br.lat, br.lon)));
+            new WGS84Coordinate(Math.Clamp(tl.lat, -90.0, 90.0), Math.Clamp(tl.lon, -180.0, 180.0)),
+            new WGS84Coordinate(Math.Clamp(tr.lat, -90.0, 90.0), Math.Clamp(tr.lon, -180.0, 180.0)),
+            new WGS84Coordinate(Math.Clamp(bl.lat, -90.0, 90.0), Math.Clamp(bl.lon, -180.0, 180.0)),
+            new WGS84Coordinate(Math.Clamp(br.lat, -90.0, 90.0), Math.Clamp(br.lon, -180.0, 180.0))));
     }
 
     private void OnNativeMapInfo(object? sender, MapInfoEventArgs e)
