@@ -39,8 +39,8 @@ public partial class MapControl : ComponentBase
     {
         if (e.WorldPosition is not null && MapClicked.HasDelegate)
         {
-            var lonLat = SphericalMercator.ToLonLat(e.WorldPosition.X, e.WorldPosition.Y);
-            var coordinate = new WGS84Coordinate(lonLat.lat, lonLat.lon);
+            var (lon, lat) = SphericalMercator.ToLonLat(e.WorldPosition.X, e.WorldPosition.Y);
+            var coordinate = new WGS84Coordinate(lat, lon);
             MapClicked.InvokeAsync(new MapEventArgs(coordinate));
         }
 
