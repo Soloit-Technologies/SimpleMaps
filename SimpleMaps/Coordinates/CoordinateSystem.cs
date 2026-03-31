@@ -19,5 +19,10 @@ namespace SimpleMaps.Coordinates
         /// Web Mercator (EPSG:3857) - commonly used for web mapping applications (meters)
         /// </summary>
         WebMercator = 2,
+
+        /// <summary>
+        /// SWEREF99 TM (EPSG:3006) - Swedish national reference frame, Transverse Mercator projection (meters)
+        /// </summary>
+        SWEREF99 = 3,
     }
 }
